@@ -92,6 +92,9 @@ pub(crate) enum Error<'src> {
     function: Name<'src>,
     message: String,
   },
+  InvalidWildcardExpression {
+    path: PathBuf,
+  },
   GetConfirmation {
     io_error: io::Error,
   },
@@ -427,6 +430,10 @@ impl<'src> ColorDisplay for Error<'src> {
       WriteJustfile { justfile, io_error } => {
         let justfile = justfile.display();
         write!(f, "Failed to write justfile to `{justfile}`: {io_error}")?;
+      }
+      InvalidWildcardExpression { path } => {
+        let path = path.display();
+        write!(f, "Invalid wildcard expression: `{path}`. You may only have one wildcard in the import statement")?;
       }
     }
 

@@ -85,23 +85,37 @@ impl Compiler {
               .join(Self::expand_tilde(&relative.cooked)?)
               .lexiclean();
 
-            if import.is_file() {
-              if srcs.contains_key(&import) {
-                return Err(Error::CircularImport {
-                  current: current.path,
-                  import,
-                });
+            if import.file_stem().unwrap() == "*" {
+              let matched_path_bufs = Self::expand_wildcard(&import)?;
+              for matched_path_buf in matched_path_bufs {
+                println!("matched_path_buf: {:?}", matched_path_buf);
+                if srcs.contains_key(&matched_path_buf) {
+                  return Err(Error::CircularImport {
+                    current: current.path,
+                    import: matched_path_buf,
+                  });
+                }
+                *absolute = Some(matched_path_buf.clone());
+                stack.push(current.import(matched_path_buf));
               }
-              *absolute = Some(import.clone());
-              stack.push(current.import(import));
-            } else if !*optional {
-              return Err(Error::MissingImportFile { path: *path });
+            } else {
+              if import.is_file() {
+                if srcs.contains_key(&import) {
+                  return Err(Error::CircularImport {
+                    current: current.path,
+                    import,
+                  });
+                }
+                *absolute = Some(import.clone());
+                stack.push(current.import(import));
+              } else if !*optional {
+                return Err(Error::MissingImportFile { path: *path });
+              }
             }
           }
           _ => {}
         }
       }
-
       asts.insert(current.path, ast.clone());
     }
 
@@ -153,6 +167,44 @@ impl Compiler {
         module,
       }),
     }
+  }
+
+  fn expand_wildcard(path: &PathBuf) -> RunResult<'static, Vec<PathBuf>> {
+    let parent = match path.parent() {
+      Some(parent) => parent,
+      None => return Ok(vec![]),
+    };
+
+    let file_extension = path.extension();
+
+    if parent.is_dir() {
+      let entries = fs::read_dir(&parent).map_err(|io_error| SearchError::Io {
+        io_error,
+        directory: parent.to_path_buf(),
+      })?;
+
+      let mut paths = Vec::new();
+      for entry in entries {
+        let entry = entry.map_err(|io_error| SearchError::Io {
+          io_error,
+          directory: parent.to_path_buf(),
+        })?;
+
+        if file_extension.is_some() {
+          if entry.path().extension() == file_extension {
+            paths.push(entry.path());
+          }
+        } else {
+          paths.push(entry.path());
+        }
+      }
+
+      return Ok(paths);
+    }
+
+    println!("parent: {:?}", parent);
+
+    Ok(vec![])
   }
 
   fn expand_tilde(path: &str) -> RunResult<'static, PathBuf> {
